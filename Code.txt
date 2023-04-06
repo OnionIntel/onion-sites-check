@@ -1,0 +1,55 @@
+import stem.process
+from stem.util import term
+import requests
+from bs4 import BeautifulSoup
+
+# Start a local Tor process with default config
+print(term.format("Starting Tor:\n", term.Attr.BOLD))
+
+tor_process = stem.process.launch_tor_with_config(
+    config={
+        'SocksPort': str(9051),
+        'ExitNodes': '{us}',
+    },
+)
+
+print(term.format("\nChecking onion sites:\n", term.Attr.BOLD))
+
+# Read the list of sites from file
+with open('onion_sites.txt', 'r') as f:
+    onion_sites = f.read().splitlines()
+
+# Loop through the list of sites and check if they are running over Tor
+for onion_site in onion_sites:
+    url = onion_site.replace("http://", "").replace("https://", "")  # remove extra http/https
+
+    with requests.Session() as session:
+        # Configure the session to use Tor for requests
+        session.proxies = {'http': 'socks5h://localhost:9051', 'https': 'socks5h://localhost:9051'}
+        print("Checking", onion_site)
+
+        try:
+            # Try to fetch the site through Tor with a 50-second timeout
+            response = session.get("http://" + url, timeout=70)  # add back http://
+            if response.status_code == 200:
+                print(term.format(f"{onion_site} is running!", term.Color.GREEN))
+
+                # Extract the title from the response
+                soup = BeautifulSoup(response.content, 'html.parser')
+                title = soup.title.string if soup.title else 'N/A'
+                print(f"Title: {title}")
+
+                # Extract the server header from the response
+                server_header = response.headers.get('Server', 'N/A')
+                server_version = server_header.split('/')[1] if '/' in server_header else 'N/A'
+                print(f"Server: {server_version}")
+
+            else:
+                print(term.format(f"{onion_site} is NOT running.", term.Color.RED))
+
+        except requests.exceptions.ConnectionError as e:
+            print(term.format(f"{onion_site} is NOT running. Error: {e}", term.Color.RED))
+
+# Stop the Tor process
+tor_process.kill()
+print(term.format("\nTor has been stopped.", term.Attr.BOLD))
